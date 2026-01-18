@@ -6,6 +6,7 @@ const AuthContext = createContext();
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   // Restore session on refresh
   useEffect(() => {
@@ -20,9 +21,11 @@ export function AuthProvider({ children }) {
         localStorage.removeItem("token");
       }
     }
+
+    setLoading(false);
   }, []);
 
-  // Single entry point for auth
+  // Single gateway for authentication
   const login = (jwt) => {
     localStorage.setItem("token", jwt);
     const decoded = jwtDecode(jwt);
@@ -37,7 +40,9 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout }}>
+    <AuthContext.Provider
+      value={{ user, token, login, logout, loading }}
+    >
       {children}
     </AuthContext.Provider>
   );
