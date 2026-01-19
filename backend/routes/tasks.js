@@ -1,49 +1,76 @@
-import express from 'express';
-import { openDb } from '../db.js';
-import authMiddleware from '../middleware/authMiddleware.js';
+import express from "express";
+import { openDb } from "../db.js";
+import  authenticate  from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-/* 🔒 Apply middleware to ALL routes */
-router.use(authMiddleware);
-
-/* 🔧 Ensure table exists AND has correct schema */
-async function ensureTasksTable(db) {
-  const columns = await db.all(`PRAGMA table_info(tasks)`);
-
-  const hasUserId = columns.some(col => col.name === 'user_id');
-
-  if (!columns.length) {
-    // Table does not exist — create it correctly
-    await db.run(`
-      CREATE TABLE tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title TEXT,
-        user_id INTEGER
-      )
-    `);
-  } 
-  else if (!hasUserId) {
-    // Table exists but is missing user_id — migrate it
-    await db.run(`ALTER TABLE tasks ADD COLUMN user_id INTEGER`);
-  }
-}
-
-/* Get all tasks for the logged-in user */
-router.get('/', async (req, res) => {
+// GET all tasks for the logged-in user
+router.get("/", authenticate, async (req, res) => {
   try {
     const db = await openDb();
-    await ensureTasksTable(db);
-
-    const tasks = await db.all(
-      `SELECT * FROM tasks WHERE user_id = ?`,
-      [req.user.id]
-    );
-
+    const tasks = await db.all("SELECT * FROM tasks WHERE userId = ?", [req.user.id]);
     res.json(tasks);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Database error' });
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// POST a new task
+router.post("/", authenticate, async (req, res) => {
+  try {
+    const { title } = req.body;
+    if (!title) return res.status(400).json({ message: "Title is required" });
+
+    const db = await openDb();
+    const result = await db.run(
+      "INSERT INTO tasks (userId, title) VALUES (?, ?)",
+      [req.user.id, title]
+    );
+
+    res.json({
+      id: result.lastID,
+      userId: req.user.id,
+      title,
+      completed: 0,
+      created_at: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// PATCH /tasks/:id -> update task (completed or title)
+router.patch("/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, completed } = req.body;
+    const db = await openDb();
+
+    await db.run(
+      "UPDATE tasks SET title = COALESCE(?, title), completed = COALESCE(?, completed) WHERE id = ? AND userId = ?",
+      [title, completed, id, req.user.id]
+    );
+
+    const updated = await db.get("SELECT * FROM tasks WHERE id = ?", [id]);
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// DELETE a task
+router.delete("/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const db = await openDb();
+    await db.run("DELETE FROM tasks WHERE id = ? AND userId = ?", [id, req.user.id]);
+    res.json({ message: "Task deleted" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
 });
 

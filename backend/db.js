@@ -29,5 +29,14 @@ export async function openDb() {
     ALTER TABLE users ADD COLUMN username TEXT
   `).catch(() => {});
 
+  await db.run(`CREATE TABLE IF NOT EXISTS posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+)`);
+
+
   return db;
 }
