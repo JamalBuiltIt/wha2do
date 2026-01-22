@@ -1,156 +1,205 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+
 import Header from "../components/Header.jsx";
+import PostsFeed from "../components/PostFeed.jsx";
+import Toast from "../components/Toast.jsx";
+
+import "./Dashboard.css";
 
 export default function Dashboard() {
   const { user, token } = useAuth();
 
+  /** -------------------------
+   * STATE
+   * ------------------------ */
   const [tasks, setTasks] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [following, setFollowing] = useState(new Set());
+
   const [newTask, setNewTask] = useState("");
   const [error, setError] = useState("");
+  const [toast, setToast] = useState(null);
 
-  // Fetch tasks on load or when token changes
-  useEffect(() => {
-    if (!token) return;
+  /** -------------------------
+   * HELPERS
+   * ------------------------ */
+  const authHeaders = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
 
-    async function fetchTasks() {
-      try {
-        const res = await fetch("http://localhost:4000/api/tasks", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+  const showToast = (message) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 2200);
+  };
 
-        if (!res.ok) throw new Error("Unauthorized");
-
-        const data = await res.json();
-        setTasks(data);
-      } catch {
-        setError("Failed to load tasks");
-      }
-    }
-
-    fetchTasks();
-  }, [token]);
-
-  // Add new task
-  const handleAddTask = async (e) => {
-    e.preventDefault();
-
-    if (!newTask.trim()) return;
-
+  /** -------------------------
+   * FETCH TASKS (PRIVATE)
+   * ------------------------ */
+  const fetchTasks = useCallback(async () => {
     try {
       const res = await fetch("http://localhost:4000/api/tasks", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ title: newTask }),
+        headers: authHeaders,
       });
-
-      if (!res.ok) throw new Error("Failed to add task");
-
-      const data = await res.json();
-      setTasks((prev) => [data, ...prev]);
-      setNewTask("");
+      if (!res.ok) throw new Error("Failed to load tasks");
+      setTasks(await res.json());
     } catch (err) {
       setError(err.message);
     }
-  };
+  }, [token]);
 
-  // Toggle task completion
-  const toggleComplete = async (task) => {
+  /** -------------------------
+   * FETCH USERS + FOLLOWING
+   * ------------------------ */
+  const fetchSocialData = useCallback(async () => {
     try {
-      const res = await fetch(`http://localhost:4000/api/tasks/${task.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          completed: task.completed ? 0 : 1,
+      const [usersRes, followingRes] = await Promise.all([
+        fetch("http://localhost:4000/api/users", { headers: authHeaders }),
+        fetch("http://localhost:4000/api/users/me/following", {
+          headers: authHeaders,
         }),
+      ]);
+
+      if (!usersRes.ok || !followingRes.ok)
+        throw new Error("Failed to load social data");
+
+      const usersData = await usersRes.json();
+      const followingData = await followingRes.json();
+
+      setUsers(usersData.filter((u) => u.id !== user.id));
+      setFollowing(new Set(followingData.map((f) => f.following_id)));
+    } catch (err) {
+      setError(err.message);
+    }
+  }, [token, user?.id]);
+
+  /** -------------------------
+   * FOLLOW / UNFOLLOW
+   * ------------------------ */
+  const toggleFollow = async (targetId) => {
+    const isFollowing = following.has(targetId);
+
+    try {
+      const res = await fetch(
+        `http://localhost:4000/api/users/${targetId}/follow`,
+        {
+          method: isFollowing ? "DELETE" : "POST",
+          headers: authHeaders,
+        }
+      );
+
+      if (!res.ok) throw new Error("Follow action failed");
+
+      setFollowing((prev) => {
+        const next = new Set(prev);
+        isFollowing ? next.delete(targetId) : next.add(targetId);
+        return next;
       });
 
-      if (!res.ok) throw new Error("Failed to update task");
-
-      const updated = await res.json();
-      setTasks((prev) =>
-        prev.map((t) => (t.id === updated.id ? updated : t))
+      const targetUser = users.find((u) => u.id === targetId);
+      showToast(
+        isFollowing
+          ? `Unfollowed ${targetUser.username}`
+          : `You are now following ${targetUser.username}`
       );
     } catch (err) {
       setError(err.message);
     }
   };
 
-  // Delete task
-  const deleteTask = async (taskId) => {
-    try {
-      const res = await fetch(`http://localhost:4000/api/tasks/${taskId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+  /** -------------------------
+   * EFFECTS
+   * ------------------------ */
+  useEffect(() => {
+    if (!token) return;
+    fetchTasks();
+    fetchSocialData();
+  }, [token, fetchTasks, fetchSocialData]);
 
-      if (!res.ok) throw new Error("Failed to delete task");
-
-      setTasks((prev) => prev.filter((t) => t.id !== taskId));
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
+  /** -------------------------
+   * RENDER
+   * ------------------------ */
   return (
-    <div>
+    <div className="dashboard-container">
       <Header />
 
-      <h2>Welcome, {user?.username}</h2>
+      {toast && <Toast message={toast} />}
+      {error && <div className="error-banner">{error}</div>}
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      <div className="dashboard-grid">
+        {/* LEFT: SOCIAL */}
+        <aside className="sidebar">
+          <h3>People</h3>
 
-      {/* Add Task */}
-      <form onSubmit={handleAddTask}>
-        <input
-          type="text"
-          placeholder="New task..."
-          value={newTask}
-          onChange={(e) => setNewTask(e.target.value)}
-        />
-        <button type="submit">Add</button>
-      </form>
-
-      {/* Tasks */}
-      {tasks.length === 0 ? (
-        <p>No tasks yet</p>
-      ) : (
-        <ul>
-          {tasks.map((task) => (
-            <li key={task.id}>
-              <input
-                type="checkbox"
-                checked={!!task.completed}
-                onChange={() => toggleComplete(task)}
-              />
-
-              <span
-                style={{
-                  marginLeft: "8px",
-                  textDecoration: task.completed
-                    ? "line-through"
-                    : "none",
-                }}
-              >
-                {task.title}
-              </span>
+          {users.map((u) => (
+            <div key={u.id} className="user-card">
+              <Link to={`/profile/${u.id}`} className="user-link">
+                <img
+                  src={u.avatar || "/default-avatar.png"}
+                  alt={u.username}
+                />
+                <span>{u.username}</span>
+              </Link>
 
               <button
-                style={{ marginLeft: "10px" }}
-                onClick={() => deleteTask(task.id)}
+                className={`follow-btn ${
+                  following.has(u.id) ? "following" : ""
+                }`}
+                onClick={() => toggleFollow(u.id)}
               >
-                Delete
+                {following.has(u.id) ? "Following" : "Follow"}
               </button>
-            </li>
+            </div>
           ))}
-        </ul>
-      )}
+        </aside>
+
+        {/* CENTER: FEED */}
+        <main className="feed">
+          <PostsFeed following={[...following]} />
+        </main>
+
+        {/* RIGHT: TASKS (PRIVATE) */}
+        <aside className="tasks-panel">
+          <h3>Your Tasks</h3>
+
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!newTask.trim()) return;
+
+              setTasks((prev) => [
+                ...prev,
+                { id: Date.now(), title: newTask, completed: false },
+              ]);
+              setNewTask("");
+            }}
+          >
+            <input
+              value={newTask}
+              onChange={(e) => setNewTask(e.target.value)}
+              placeholder="New task…"
+            />
+            <button>Add</button>
+          </form>
+
+          <ul>
+            {tasks.map((task) => (
+              <li key={task.id}>
+                <input type="checkbox" checked={task.completed} readOnly />
+                <span
+                  style={{
+                    textDecoration: task.completed ? "line-through" : "none",
+                  }}
+                >
+                  {task.title}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      </div>
     </div>
   );
 }

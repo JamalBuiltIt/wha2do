@@ -24,10 +24,14 @@ export async function openDb() {
     )
   `);
 
-  // 🔧 Add username column if it does not exist
-  await db.run(`
-    ALTER TABLE users ADD COLUMN username TEXT
-  `).catch(() => {});
+ try {
+  await db.run(`ALTER TABLE users ADD COLUMN username TEXT`);
+} catch (err) {
+  if (!err.message.includes("duplicate column")) {
+    throw err;
+  }
+}
+
 
   await db.run(`CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +41,19 @@ export async function openDb() {
     FOREIGN KEY (user_id) REFERENCES users(id)
 )`);
 
+  await db.run(`
+    CREATE TABLE IF NOT EXISTS follows (
+    follower_id INTEGER NOT NULL,
+    following_id INTEGER NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (follower_id, following_id),
+    FOREIGN KEY (follower_id) REFERENCES users(id),
+    FOREIGN KEY (following_id) REFERENCES users(id)
+  )
+`);
 
+
+
+  console.log("DB initialized");
   return db;
 }
