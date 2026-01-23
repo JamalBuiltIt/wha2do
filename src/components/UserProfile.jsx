@@ -1,29 +1,32 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
 export default function UserProfile() {
-  const { id } = useParams(); // get user id from URL
-  const { user: currentUser, token } = useAuth(); // logged-in user info
+  const { id } = useParams();
+  const { token } = useAuth();
 
   const [profile, setProfile] = useState(null);
-  const [posts, setPosts] = useState([]);
-  const [tasks, setTasks] = useState([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!token || !id) return;
+
     async function fetchProfile() {
       try {
-        const res = await fetch(`http://localhost:4000/api/users/${id}`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        const res = await fetch(
+          `http://localhost:4000/api/users/${id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
 
-        if (!res.ok) throw new Error("Failed to fetch profile");
+        if (!res.ok) throw new Error("User not found");
 
         const data = await res.json();
-        setProfile(data.user);
-        setPosts(data.posts);
-        setTasks(data.tasks);
+        setProfile(data);
       } catch (err) {
         setError(err.message);
       }
@@ -32,42 +35,17 @@ export default function UserProfile() {
     fetchProfile();
   }, [id, token]);
 
-
-  if (error) return <p style={{color:'red'}}>{error}</p>;
-  if (!user) return <p>Loading...</p>;
-
-    if (!profile) return <p>Loading profile...</p>;
-
-  const isOwner = currentUser?.id === profile.id;
+  if (error) return <p>{error}</p>;
+  if (!profile) return <p>Loading profile...</p>;
 
   return (
-    <div style={{ border: `3px solid ${profile.theme_color}`, padding: "1rem" }}>
-      {error && <p style={{ color: "red" }}>{error}</p>}
-
+    <div className="profile-container">
       <img
-        src={profile.avatar} // later we can allow custom uploaded images
-        alt={`${profile.username}'s avatar`}
-        style={{ width: 100, height: 100, borderRadius: "50%" }}
+        src={profile.avatar || "/default-avatar.png"}
+        alt={profile.username}
       />
       <h2>{profile.username}</h2>
-      <p>{profile.bio}</p>
-
-      {isOwner && <button>Edit Profile</button>}
-
-      <h3>Posts</h3>
-      <ul>
-        {posts.map(p => (
-          <li key={p.id}>{p.content}</li>
-        ))}
-      </ul>
-
-      <h3>Tasks</h3>
-      <ul>
-        {tasks.map(t => (
-          <li key={t.id}>{t.title} {t.completed ? "(Done)" : ""}</li>
-        ))}
-      </ul>
+      <p>{profile.bio || "This user has no bio yet."}</p>
     </div>
   );
 }
-

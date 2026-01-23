@@ -1,126 +1,130 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
-
 import Header from "../components/Header.jsx";
 import PostsFeed from "../components/PostFeed.jsx";
 import Toast from "../components/Toast.jsx";
-
 import "./Dashboard.css";
 
 export default function Dashboard() {
   const { user, token } = useAuth();
 
-  /** -------------------------
-   * STATE
-   * ------------------------ */
+  /* ---------------- STATE ---------------- */
   const [tasks, setTasks] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [following, setFollowing] = useState(new Set());
-
   const [newTask, setNewTask] = useState("");
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState(null);
 
-  /** -------------------------
-   * HELPERS
-   * ------------------------ */
+  const [users, setUsers] = useState([]);
+  const [following, setFollowing] = useState([]);
+
+  const [newPost, setNewPost] = useState("");
+  const [toast, setToast] = useState(null);
+  const [error, setError] = useState("");
+
   const authHeaders = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
 
-  const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(null), 2200);
-  };
-
-  /** -------------------------
-   * FETCH TASKS (PRIVATE)
-   * ------------------------ */
-  const fetchTasks = useCallback(async () => {
-    try {
-      const res = await fetch("http://localhost:4000/api/tasks", {
-        headers: authHeaders,
-      });
-      if (!res.ok) throw new Error("Failed to load tasks");
-      setTasks(await res.json());
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [token]);
-
-  /** -------------------------
-   * FETCH USERS + FOLLOWING
-   * ------------------------ */
-  const fetchSocialData = useCallback(async () => {
-    try {
-      const [usersRes, followingRes] = await Promise.all([
-        fetch("http://localhost:4000/api/users", { headers: authHeaders }),
-        fetch("http://localhost:4000/api/users/me/following", {
-          headers: authHeaders,
-        }),
-      ]);
-
-      if (!usersRes.ok || !followingRes.ok)
-        throw new Error("Failed to load social data");
-
-      const usersData = await usersRes.json();
-      const followingData = await followingRes.json();
-
-      setUsers(usersData.filter((u) => u.id !== user.id));
-      setFollowing(new Set(followingData.map((f) => f.following_id)));
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [token, user?.id]);
-
-  /** -------------------------
-   * FOLLOW / UNFOLLOW
-   * ------------------------ */
-  const toggleFollow = async (targetId) => {
-    const isFollowing = following.has(targetId);
-
-    try {
-      const res = await fetch(
-        `http://localhost:4000/api/users/${targetId}/follow`,
-        {
-          method: isFollowing ? "DELETE" : "POST",
-          headers: authHeaders,
-        }
-      );
-
-      if (!res.ok) throw new Error("Follow action failed");
-
-      setFollowing((prev) => {
-        const next = new Set(prev);
-        isFollowing ? next.delete(targetId) : next.add(targetId);
-        return next;
-      });
-
-      const targetUser = users.find((u) => u.id === targetId);
-      showToast(
-        isFollowing
-          ? `Unfollowed ${targetUser.username}`
-          : `You are now following ${targetUser.username}`
-      );
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
-  /** -------------------------
-   * EFFECTS
-   * ------------------------ */
+  /* ---------------- TASKS (PRIVATE) ---------------- */
   useEffect(() => {
     if (!token) return;
-    fetchTasks();
-    fetchSocialData();
-  }, [token, fetchTasks, fetchSocialData]);
 
-  /** -------------------------
-   * RENDER
-   * ------------------------ */
+    async function fetchTasks() {
+      try {
+        const res = await fetch("http://localhost:4000/api/tasks", {
+          headers: authHeaders,
+        });
+        if (!res.ok) throw new Error("Failed to load tasks");
+        setTasks(await res.json());
+      } catch (err) {
+        setError(err.message);
+      }
+    }
+
+    fetchTasks();
+  }, [token]);
+
+  /* ---------------- USERS + FOLLOWING ---------------- */
+  useEffect(() => {
+    if (!token) return;
+
+    async function fetchSocialData() {
+      try {
+        const [usersRes, followingRes] = await Promise.all([
+          fetch("http://localhost:4000/api/users", { headers: authHeaders }),
+          fetch("http://localhost:4000/api/users/me/following", {
+            headers: authHeaders,
+          }),
+        ]);
+
+        if (!usersRes.ok || !followingRes.ok)
+          throw new Error("Failed to load social data");
+
+        setUsers(await usersRes.json());
+
+        const followingData = await followingRes.json();
+        setFollowing(followingData.map((f) => f.following_id));
+      } catch (err) {
+        setError(err.message);
+      }
+    }
+
+    fetchSocialData();
+  }, [token]);
+
+  /* ---------------- FOLLOW TOGGLE ---------------- */
+  const toggleFollow = async (targetId) => {
+    try {
+      const isFollowing = following.includes(targetId);
+      const method = isFollowing ? "DELETE" : "POST";
+
+      const res = await fetch(
+        `http://localhost:4000/api/users/${targetId}/follow`,
+        { method, headers: authHeaders }
+      );
+
+      if (!res.ok) throw new Error("Follow update failed");
+
+      setFollowing((prev) =>
+        isFollowing ? prev.filter((id) => id !== targetId) : [...prev, targetId]
+      );
+
+      const targetUser = users.find((u) => u.id === targetId);
+      setToast(
+        isFollowing
+          ? `Unfollowed ${targetUser.username}`
+          : `Now following ${targetUser.username}`
+      );
+
+      setTimeout(() => setToast(null), 2000);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  /* ---------------- POST CREATION (PUBLIC) ---------------- */
+  const createPost = async (e) => {
+    e.preventDefault();
+    if (!newPost.trim()) return;
+
+    try {
+      const res = await fetch("http://localhost:4000/api/posts", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({ content: newPost }),
+      });
+
+      if (!res.ok) throw new Error("Failed to create post");
+
+      setNewPost("");
+      setToast("Post published");
+      setTimeout(() => setToast(null), 2000);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  /* ---------------- UI ---------------- */
   return (
     <div className="dashboard-container">
       <Header />
@@ -128,11 +132,10 @@ export default function Dashboard() {
       {toast && <Toast message={toast} />}
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="dashboard-grid">
-        {/* LEFT: SOCIAL */}
+      <div className="dashboard-main">
+        {/* ---------- LEFT: USERS ---------- */}
         <aside className="sidebar">
           <h3>People</h3>
-
           {users.map((u) => (
             <div key={u.id} className="user-card">
               <Link to={`/profile/${u.id}`} className="user-link">
@@ -144,23 +147,34 @@ export default function Dashboard() {
               </Link>
 
               <button
-                className={`follow-btn ${
-                  following.has(u.id) ? "following" : ""
-                }`}
+                className={
+                  following.includes(u.id)
+                    ? "following-btn"
+                    : "follow-btn"
+                }
                 onClick={() => toggleFollow(u.id)}
               >
-                {following.has(u.id) ? "Following" : "Follow"}
+                {following.includes(u.id) ? "Following" : "Follow"}
               </button>
             </div>
           ))}
         </aside>
 
-        {/* CENTER: FEED */}
+        {/* ---------- CENTER: FEED ---------- */}
         <main className="feed">
-          <PostsFeed following={[...following]} />
+          <form className="post-form" onSubmit={createPost}>
+            <textarea
+              value={newPost}
+              onChange={(e) => setNewPost(e.target.value)}
+              placeholder="Share something..."
+            />
+            <button type="submit">Post</button>
+          </form>
+
+          <PostsFeed following={following} />
         </main>
 
-        {/* RIGHT: TASKS (PRIVATE) */}
+        {/* ---------- RIGHT: TASKS (PRIVATE) ---------- */}
         <aside className="tasks-panel">
           <h3>Your Tasks</h3>
 
@@ -168,10 +182,9 @@ export default function Dashboard() {
             onSubmit={(e) => {
               e.preventDefault();
               if (!newTask.trim()) return;
-
               setTasks((prev) => [
                 ...prev,
-                { id: Date.now(), title: newTask, completed: false },
+                { id: Date.now(), title: newTask },
               ]);
               setNewTask("");
             }}
@@ -179,7 +192,7 @@ export default function Dashboard() {
             <input
               value={newTask}
               onChange={(e) => setNewTask(e.target.value)}
-              placeholder="New task…"
+              placeholder="New task..."
             />
             <button>Add</button>
           </form>
@@ -187,9 +200,10 @@ export default function Dashboard() {
           <ul>
             {tasks.map((task) => (
               <li key={task.id}>
-                <input type="checkbox" checked={task.completed} readOnly />
+                <input type="checkbox" checked={!!task.completed} readOnly />
                 <span
                   style={{
+                    marginLeft: "8px",
                     textDecoration: task.completed ? "line-through" : "none",
                   }}
                 >

@@ -12,17 +12,17 @@ router.post('/:id/follow', authMiddleware, async (req, res) => {
 
   const db = await openDb();
 
-  // Check for block in either direction
-  const block = await db.get(
-    `SELECT 1 FROM blocks
-     WHERE (blocker_id = ? AND blocked_id = ?)
-        OR (blocker_id = ? AND blocked_id = ?)`,
-    [followerId, followingId, followingId, followerId]
-  );
+  //Check for a blocked user
+const blocked = await db.get(`
+  SELECT 1 FROM blocks
+  WHERE (blocker_id = ? AND blocked_id = ?)
+     OR (blocker_id = ? AND blocked_id = ?)
+`, [followingId, followerId, followerId, followingId]);
 
-  if (block) {
-    return res.status(403).json({ message: 'Noooo blocked' });
-  }
+if (blocked) {
+  return res.status(403).json({ message: "Follow not allowed" });
+}
+
 
   try {
     await db.run(
