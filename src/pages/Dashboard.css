@@ -103,3 +103,18 @@
   border-radius: 8px;
   padding: 8px 14px;
 }
+
+.task-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.delete-task-btn {
+  background: none;
+  border: none;
+  color: #ff4d4f;
+  font-size: 16px;
+  cursor: pointer;
+}
