@@ -34,6 +34,7 @@ app.use("/api/tasks", tasksRoutes);
 app.use("/api/posts", postsRouter);
 app.use("/api/users", usersRouter);
 app.use("/api/blocks", authMiddleware, blockRoutes);
+app.use("/uploads", express.static("uploads"));
 
 /* ---------------- HTTP + SOCKET.IO SERVER ---------------- */
 const server = http.createServer(app);

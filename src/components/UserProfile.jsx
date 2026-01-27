@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import PostsFeed from "../components/PostFeed.jsx";
@@ -11,58 +11,99 @@ export default function UserProfile() {
 
   const [profile, setProfile] = useState(null);
   const [posts, setPosts] = useState([]);
+  const [stats, setStats] = useState({ followers: 0, following: 0 });
   const [isFollowing, setIsFollowing] = useState(false);
+
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState({ bio: "", avatar: "", theme_color: "#ffffff" });
+
   const [toast, setToast] = useState(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const authHeaders = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
 
-  useEffect(() => {
-    async function fetchProfile() {
-      try {
-        const res = await fetch(`http://localhost:4000/api/users/${id}`, {
-          headers: authHeaders,
-        });
-        if (!res.ok) throw new Error("Failed to load profile");
+  /* ================= LOAD PROFILE ================= */
+  const loadProfile = useCallback(async (signal) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`http://localhost:4000/api/users/${id}`, {
+        headers: authHeaders,
+        signal,
+      });
 
-        const data = await res.json();
-        setProfile(data.user);
-        setPosts(data.posts || []);
-        setIsFollowing(data.isFollowing);
-        setForm({
-          bio: data.user.bio || "",
-          avatar: data.user.avatar || "",
-          theme_color: data.user.theme_color || "#ffffff",
-        });
-      } catch (err) {
-        setError(err.message);
-      }
+      if (!res.ok) throw new Error("Failed to load profile");
+
+      const data = await res.json();
+
+      setProfile(data.user);
+      setPosts(data.posts || []);
+      setIsFollowing(data.isFollowing);
+
+      setForm({
+        bio: data.user.bio || "",
+        avatar: data.user.avatar || "",
+        theme_color: data.user.theme_color || "#ffffff",
+      });
+    } catch (err) {
+      if (err.name !== "AbortError") setError(err.message);
+    } finally {
+      setLoading(false);
     }
-
-    fetchProfile();
   }, [id, token]);
 
+  /* ================= LOAD FOLLOW STATS ================= */
+  const loadStats = useCallback(async (signal) => {
+    try {
+      const res = await fetch(`http://localhost:4000/api/users/${id}/stats`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setStats(data);
+    } catch {}
+  }, [id, token]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const controller = new AbortController();
+    loadProfile(controller.signal);
+    loadStats(controller.signal);
+
+    return () => controller.abort();
+  }, [loadProfile, loadStats]);
+
+  /* ================= FOLLOW / UNFOLLOW ================= */
   const toggleFollow = async () => {
     try {
       const method = isFollowing ? "DELETE" : "POST";
-      await fetch(`http://localhost:4000/api/users/${id}/follow`, {
+
+      const res = await fetch(`http://localhost:4000/api/users/${id}/follow`, {
         method,
         headers: authHeaders,
       });
 
+      if (!res.ok) throw new Error();
+
       setIsFollowing(!isFollowing);
+      setStats((prev) => ({
+        ...prev,
+        followers: isFollowing ? prev.followers - 1 : prev.followers + 1,
+      }));
+
       setToast(isFollowing ? "Unfollowed user" : "Now following user");
       setTimeout(() => setToast(null), 2000);
-    } catch (err) {
-      setError("Follow failed");
+    } catch {
+      setError("Action failed");
     }
   };
 
+  /* ================= SAVE PROFILE ================= */
   const saveProfile = async () => {
     try {
       const res = await fetch("http://localhost:4000/api/users/me", {
@@ -83,7 +124,9 @@ export default function UserProfile() {
     }
   };
 
-  if (!profile) return <p>Loading...</p>;
+  if (loading) return <div className="profile-loading">Loading profile...</div>;
+  if (!profile) return <div className="profile-error">Profile not found</div>;
+
   const isOwnProfile = currentUser.id === profile.id;
 
   return (
@@ -91,13 +134,9 @@ export default function UserProfile() {
       {toast && <Toast message={toast} />}
       {error && <div className="error-banner">{error}</div>}
 
-      {/* HEADER */}
-      <div
-        className="profile-header"
-        style={{ background: form.theme_color }}
-      >
+      <div className="profile-header" style={{ background: profile.theme_color || "#ffffff" }}>
         <img
-          src={form.avatar || "/default-avatar.png"}
+          src={profile.avatar || "/default-avatar.png"}
           alt="avatar"
           className="profile-avatar"
         />
@@ -107,19 +146,18 @@ export default function UserProfile() {
             <h2>{profile.username}</h2>
             <p className="profile-bio">{profile.bio || "No bio yet."}</p>
 
+            <div className="profile-stats">
+              <span><strong>{stats.followers}</strong> Followers</span>
+              <span><strong>{stats.following}</strong> Following</span>
+            </div>
+
             <div className="profile-actions">
               {isOwnProfile && (
-                <button
-                  className="edit-btn"
-                  onClick={() => setEditMode(true)}
-                  title="Edit profile"
-                >
-                  ✏️
-                </button>
+                <button className="edit-btn" onClick={() => setEditMode(true)}>Edit Profile</button>
               )}
 
               {!isOwnProfile && (
-                <button onClick={toggleFollow} className="follow-btn">
+                <button onClick={toggleFollow} className={`follow-btn ${isFollowing ? "following" : ""}`}>
                   {isFollowing ? "Following" : "Follow"}
                 </button>
               )}
@@ -149,15 +187,12 @@ export default function UserProfile() {
 
             <div className="edit-actions">
               <button onClick={saveProfile} className="save-btn">Save</button>
-              <button onClick={() => setEditMode(false)} className="cancel-btn">
-                Cancel
-              </button>
+              <button onClick={() => setEditMode(false)} className="cancel-btn">Cancel</button>
             </div>
           </div>
         )}
       </div>
 
-      {/* POSTS */}
       <section className="profile-posts">
         <h3>Posts</h3>
         <PostsFeed posts={posts} />
